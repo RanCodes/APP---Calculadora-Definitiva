@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { parseExcelFile, processFiles, downloadExcel } from './services/excelService';
+import { fetchLogistics, fetchLogo, uploadLogo, deleteLogo } from './services/persistenceService';
 import { ParsedSheet, AnalysisStatus, CalculatorConfig, ProcessedRow, WeightEntry, ShippingRate } from './types';
 import FileUpload from './components/FileUpload';
 import DataGrid from './components/DataGrid';
@@ -16,34 +17,21 @@ const App: React.FC = () => {
     return saved ? saved === 'dark' : true; 
   });
 
-  const [logo, setLogo] = useState<string | null>(() => {
-    return localStorage.getItem('app_logo');
-  });
+  const [logo, setLogo] = useState<string | null>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const [isLogoUpdating, setIsLogoUpdating] = useState(false);
+  const [isLogoLoading, setIsLogoLoading] = useState(false);
+  const logoObjectUrlRef = useRef<string | null>(null);
 
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   // Base de Pesos y Escalas con persistencia
-  const [weights, setWeights] = useState<WeightEntry[]>(() => {
-    const saved = localStorage.getItem('app_weights');
-    return saved ? JSON.parse(saved) : [];
-  });
-  
-  const [rates, setRates] = useState<ShippingRate[]>(() => {
-    const saved = localStorage.getItem('app_shipping_rates');
-    return saved ? JSON.parse(saved) : [
-      { maxWeight: 0.5, cost: 5500 },
-      { maxWeight: 1.0, cost: 6800 },
-      { maxWeight: 2.0, cost: 8200 }
-    ];
-  });
+  const [weights, setWeights] = useState<WeightEntry[]>([]);
 
-  useEffect(() => {
-    localStorage.setItem('app_weights', JSON.stringify(weights));
-  }, [weights]);
+  const [rates, setRates] = useState<ShippingRate[]>([]);
 
-  useEffect(() => {
-    localStorage.setItem('app_shipping_rates', JSON.stringify(rates));
-  }, [rates]);
+  const [logisticsError, setLogisticsError] = useState<string | null>(null);
+  const [logisticsLoading, setLogisticsLoading] = useState<boolean>(true);
 
   useEffect(() => {
     localStorage.setItem('theme_preference', darkMode ? 'dark' : 'light');
@@ -53,6 +41,49 @@ const App: React.FC = () => {
       document.documentElement.classList.remove('dark');
     }
   }, [darkMode]);
+
+  const loadLogistics = async () => {
+    setLogisticsLoading(true);
+    try {
+      const data = await fetchLogistics();
+      setWeights(data.weights || []);
+      setRates(data.rates || []);
+      setLogisticsError(null);
+    } catch (error: any) {
+      setLogisticsError(error.message || 'No se pudo cargar la logística');
+    } finally {
+      setLogisticsLoading(false);
+    }
+  };
+
+  const refreshLogo = async () => {
+    setIsLogoLoading(true);
+    try {
+      const url = await fetchLogo();
+      if (logoObjectUrlRef.current) {
+        URL.revokeObjectURL(logoObjectUrlRef.current);
+      }
+      logoObjectUrlRef.current = url;
+      setLogo(url);
+      setLogoError(null);
+    } catch (error: any) {
+      setLogoError(error.message || 'No se pudo cargar el logo');
+      setLogo(null);
+    } finally {
+      setIsLogoLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLogistics();
+    refreshLogo();
+
+    return () => {
+      if (logoObjectUrlRef.current) {
+        URL.revokeObjectURL(logoObjectUrlRef.current);
+      }
+    };
+  }, []);
 
   const [mlSheet, setMlSheet] = useState<ParsedSheet | null>(null);
   const [odooSheet, setOdooSheet] = useState<ParsedSheet | null>(null);
@@ -123,16 +154,30 @@ const App: React.FC = () => {
     }, 100);
   };
 
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        setLogo(base64String);
-        localStorage.setItem('app_logo', base64String);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    setIsLogoUpdating(true);
+    try {
+      await uploadLogo(file);
+      await refreshLogo();
+    } catch (error: any) {
+      setLogoError(error.message || 'No se pudo guardar el logo');
+    } finally {
+      setIsLogoUpdating(false);
+      if (logoInputRef.current) logoInputRef.current.value = '';
+    }
+  };
+
+  const handleLogoDelete = async () => {
+    setIsLogoUpdating(true);
+    try {
+      await deleteLogo();
+      await refreshLogo();
+    } catch (error: any) {
+      setLogoError(error.message || 'No se pudo eliminar el logo');
+    } finally {
+      setIsLogoUpdating(false);
     }
   };
 
@@ -143,16 +188,25 @@ const App: React.FC = () => {
           <div className="flex justify-between h-20 items-center">
             <div className="flex items-center gap-10">
               {/* Brand Area */}
-              <div 
-                className="flex items-center gap-4 cursor-pointer group"
+              <div
+                className={`flex items-center gap-4 cursor-pointer group ${isLogoUpdating ? 'opacity-70' : ''}`}
                 onClick={() => logoInputRef.current?.click()}
               >
                 <div className="relative">
                   {logo ? (
                     <img src={logo} alt="JUMA Logo" className="w-12 h-12 rounded-xl object-contain shadow-md border border-slate-200 dark:border-slate-700 bg-white" />
+                  ) : isLogoLoading ? (
+                    <div className="w-12 h-12 rounded-xl border border-slate-200 dark:border-slate-700 bg-white flex items-center justify-center">
+                      <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
                   ) : (
                     <div className="bg-blue-600 p-2.5 rounded-xl shadow-lg shadow-blue-500/30 group-hover:scale-105 transition-transform">
                       <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    </div>
+                  )}
+                  {(isLogoLoading || isLogoUpdating) && (
+                    <div className="absolute inset-0 bg-black/10 dark:bg-black/30 rounded-xl flex items-center justify-center">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     </div>
                   )}
                   <div className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-800 p-1 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
@@ -163,7 +217,17 @@ const App: React.FC = () => {
                 <div className="flex flex-col">
                   <span className="text-xl font-black text-slate-900 dark:text-white tracking-tighter uppercase">JUMA Electric</span>
                   <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 tracking-[0.2em] uppercase leading-none">PROD. ELECTRICOS</span>
+                  {logoError && <span className="text-[10px] font-bold text-amber-500">{logoError}</span>}
                 </div>
+                {logo && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleLogoDelete(); }}
+                    disabled={isLogoUpdating}
+                    className="text-[10px] font-black bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 px-3 py-1.5 rounded-lg uppercase tracking-widest transition-all hover:scale-105 active:scale-95"
+                  >
+                    Eliminar
+                  </button>
+                )}
               </div>
               
               {/* Tabs */}
@@ -202,6 +266,29 @@ const App: React.FC = () => {
           </div>
         </div>
       </nav>
+
+      {(logisticsLoading || logisticsError || logoError) && (
+        <div className="max-w-[1800px] w-full mx-auto px-6 pt-4 space-y-3">
+          {logisticsLoading && (
+            <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-2xl text-sm font-bold">
+              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              Sincronizando base logística...
+            </div>
+          )}
+          {logisticsError && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-2xl text-sm font-bold">
+              <span>{logisticsError}</span>
+              <button onClick={loadLogistics} className="px-3 py-2 bg-rose-600 text-white rounded-xl text-[10px] uppercase tracking-[0.2em]">Reintentar</button>
+            </div>
+          )}
+          {logoError && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-2xl text-sm font-bold">
+              <span>{logoError}</span>
+              <button onClick={refreshLogo} className="px-3 py-2 bg-amber-500 text-white rounded-xl text-[10px] uppercase tracking-[0.2em]">Reintentar</button>
+            </div>
+          )}
+        </div>
+      )}
 
       <main className="flex-1 max-w-[1800px] w-full mx-auto px-6 py-10 overflow-hidden">
         {activeTab === 'calc' ? (
