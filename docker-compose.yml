@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Inyecta la API_KEY de Gemini en el build para que el frontend pueda usarla
+        API_KEY: ${API_KEY:-}
+    ports:
+      - "8080:80"
+    environment:
+      # Se deja disponible también en tiempo de ejecución por si se desean logs o futuros endpoints
+      API_KEY: ${API_KEY:-}
+    volumes:
+      # Carpeta host para almacenar/backupear archivos XLSX generados o compartidos con la app
+      - ./backups:/usr/share/nginx/html/backups
+    restart: unless-stopped
