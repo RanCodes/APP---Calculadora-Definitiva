@@ -1,15 +1,31 @@
 version: "3.9"
 
 services:
-  app:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: calculadora-meli-juma-api
+    image: calculadora-meli-juma-api:latest
+    volumes:
+      - ./data:/data
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+
+  frontend:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         # Inyecta la API_KEY de Gemini en el build para que el frontend pueda usarla
         API_KEY: ${API_KEY:-}
+    image: calculadora-meli-juma:prod
+    container_name: calculadora-meli-juma
+    depends_on:
+      - api
     ports:
-      - "8080:80"
+      - "8087:80"
     environment:
       # Se deja disponible también en tiempo de ejecución por si se desean logs o futuros endpoints
       API_KEY: ${API_KEY:-}

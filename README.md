@@ -10,11 +10,22 @@ View your app in AI Studio: https://ai.studio/apps/drive/1C7XHBB6-3tqtQZO0kqMAcq
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+**Prerequisites:** Node.js
 
+1. Install dependencies for the frontend: `npm install`
+2. Start the Vite dev server: `npm run dev`
+3. (Optional) Start the API locally from `/server`: `npm install && npm start`
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Deploy with Docker Compose
+
+The stack now incluye un backend Node/Express que persiste la logística y el logo en `/data`.
+
+```
+$env:API_KEY="<tu_gemini_api_key>"
+docker compose build --no-cache
+docker compose up -d
+```
+
+Servicios desplegados:
+- **frontend**: imagen `calculadora-meli-juma:prod`, contenedor `calculadora-meli-juma`, expuesto en `http://localhost:8087`
+- **api**: contenedor `calculadora-meli-juma-api`, expuesto en `http://localhost:4000` y proxyeado en `/api` vía Nginx
